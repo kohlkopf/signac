@@ -1,0 +1,166 @@
+---
+title: "Signac"
+author: "Kohl Kinning"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_notebook: 
+    df_print: paged
+    code_folding: none
+    fig_height: 4
+    fig_width: 6
+    theme: cosmo
+---
+
+```{r, echo=FALSE}
+library(rtweet)
+library(ggplot2)
+library(maps)
+library(readr)
+library(dplyr)
+
+#read in secrets, don't give public access to keys/tokens
+secrets <- read_lines("./secrets.txt")
+
+## access token method: create token and save it as an environment variable
+create_token(
+    app = "signac",
+    consumer_key = secrets[1],
+    consumer_secret = secrets[2],
+    access_token = secrets[3],
+    access_secret = secrets[4]
+)
+```
+
+
+# Search tweets
+```{r}
+## search for 18000 tweets using the rstats hashtag
+rt <- search_tweets(
+  "#GovernmentShutdown", n = 18000, include_rts = FALSE
+)
+
+## preview tweets data
+rt
+
+## preview users data
+users_data(rt)
+
+## plot time series (if ggplot2 is installed)
+ts_plot(rt)
+```
+
+# Stream them
+```{r}
+rt <- stream_tweets(lookup_coords("usa"), timeout = 60*60*24*2, lang = "en", file_name = "./saved/usa_stream_48hr_012919.json", parse = FALSE, retryonratelimit = TRUE)
+
+
+rt <- parse_stream("./saved/usa_stream_48hr_012919.json")
+results <- table(unlist(rt$hashtags[!is.na(rt$hashtags)]))
+
+sum(results)
+
+sort(results, decreasing = TRUE)
+```
+
+# Retrieve timelines
+```{r}
+tmls <- get_timelines(c("cnn", "BBCWorld", "foxnews"), n = 3200)
+
+parse_it <- tmls %>%
+  dplyr::filter(created_at > "2018-12-1") %>%
+  dplyr::group_by(screen_name)
+
+parse_it[parse_it$screen_name %in% "FoxNews",]$hashtags
+
+parse_it$hashtags
+tmls_results <- table(unlist(tmls$hashtags[!is.na(tmls$hashtags)]))
+sort(tmls_results, decreasing = TRUE)
+
+data.frame(features=names(tmls_results))
+
+tmls %>%
+  dplyr::filter(created_at > "2018-11-1") %>%
+  dplyr::group_by(screen_name) %>%
+  ts_plot("days", trim = 1L) +
+  ggplot2::geom_point() +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    legend.title = ggplot2::element_blank(),
+    legend.position = "bottom",
+    plot.title = ggplot2::element_text(face = "bold")) +
+  ggplot2::labs(
+    x = NULL, y = NULL,
+    title = "Frequency of Twitter statuses posted by news organization",
+    subtitle = "Twitter status (tweet) counts aggregated by day from December 2018",
+    caption = "\nSource: Data collected from Twitter's REST API via rtweet"
+  )
+```
+
+```{r}
+sf <- get_trends("san francisco")
+
+sorted_sf <- arrange(sf, desc(tweet_volume))
+
+data.frame(sorted_sf$trend, sorted_sf$tweet_volume)
+```
+
+```{r}
+kc <- get_trends("kansas city")
+
+sorted_kc <- arrange(kc, desc(tweet_volume))
+
+data.frame(sorted_kc$trend, sorted_kc$tweet_volume)
+```
+
+```{r}
+nyc <- get_trends("new york")
+
+sorted_nyc <- arrange(nyc, desc(tweet_volume))
+
+data.frame(sorted_nyc$trend, sorted_nyc$tweet_volume)
+```
+
+```{r}
+seattle <- get_trends("seattle")
+
+sorted_seattle <- arrange(seattle, desc(tweet_volume))
+
+data.frame(sorted_seattle$trend, sorted_seattle$tweet_volume)
+```
+
+
+```{r}
+#trending_search <- search_tweets("#TrumpResign", n = 54000, include_rts = TRUE, retryonratelimit = TRUE)
+#save(trending_search, file = "./saved/trump_resign.json")
+
+ts_plot(mapped_trending_search$`#TrumpResign`, by="mins")
+head(arrange(trending_search, desc(retweet_count)))
+
+data.frame(head(sort(table((users_data(trending_search)$location)), decreasing=TRUE), n=20))
+```
+
+Look at location info
+```{r}
+trending_search <- lat_lng(data.frame(mapped_trending_search$`#TrumpResign`))
+
+## plot state boundaries
+par(mar = c(0, 0, 0, 0))
+maps::map("state", lwd = .25)
+
+## plot lat and lng points onto state map
+with(trending_search, points(lng, lat, pch = 20, cex = .75, col = rgb(0, .3, .7, .75)))
+```
+
+Smarter way to do the above (in case of timeout)
+```{r}
+#should result in ~340,000 tweets, dereference by keyword
+mapped_trending_search <- Map("search_tweets","#TrumpResign", n = 350000, include_rts = FALSE, retryonratelimit = TRUE)
+save(mapped_trending_search, file = "~/signac/saved/long_trump_resign.json")
+
+trending_search <- mapped_trending_search
+```
+
+```{r}
+data.frame(head(sort(table((mapped_trending_search$`#TrumpResign`$location)), decreasing=TRUE), n=20))
+```
+
